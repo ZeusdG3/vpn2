@@ -1,0 +1,75 @@
+version: "3.8"
+
+# ============================================================
+# INTEGRANTE 3 — PEER 2 / EDGE NODE (10.10.10.3 en ZeroTier)
+# Ejecutar: docker compose -f docker-compose.peer2.yml up --build
+#
+# IMPORTANTE: Reemplazar COORDINATOR_IP con la IP ZeroTier del Integrante 1
+# Ejemplo: COORDINATOR_IP=10.10.10.1 docker compose -f docker-compose.peer2.yml up --build
+# ============================================================
+
+services:
+  edge_peer2:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: iot_edge_peer2
+    environment:
+      - ROLE=edge
+      - EDGE_ID=edge-peer2
+      # IP ZeroTier del coordinador (Integrante 1)
+      - COORDINATOR_URL=http://${COORDINATOR_IP:-10.10.10.1}:8080
+      - LISTEN_PORT=9090
+      - RUST_LOG=info
+      - NETEM_PROFILE=${NETEM_PROFILE:-worker2}
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "9090:9090"
+    networks:
+      - iotnet_peer2
+    restart: unless-stopped
+
+  sensor_peer2_a:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: iot_sensor_peer2_a
+    environment:
+      - ROLE=sensor
+      - SENSOR_ID=sensor-peer2-temp
+      - EDGE_URL=http://edge_peer2:9090
+      - PUBLISH_INTERVAL_MS=600
+      - SENSOR_UNIT=celsius
+      - BASE_VALUE=31.0
+      - ANOMALY_THRESHOLD=38.0
+      - RUST_LOG=info
+    networks:
+      - iotnet_peer2
+    depends_on:
+      - edge_peer2
+    restart: unless-stopped
+
+  sensor_peer2_b:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: iot_sensor_peer2_b
+    environment:
+      - ROLE=sensor
+      - SENSOR_ID=sensor-peer2-vibration
+      - EDGE_URL=http://edge_peer2:9090
+      - PUBLISH_INTERVAL_MS=300
+      - SENSOR_UNIT=mm_s
+      - BASE_VALUE=2.5
+      - ANOMALY_THRESHOLD=8.0
+      - RUST_LOG=info
+    networks:
+      - iotnet_peer2
+    depends_on:
+      - edge_peer2
+    restart: unless-stopped
+
+networks:
+  iotnet_peer2:
+    driver: bridge

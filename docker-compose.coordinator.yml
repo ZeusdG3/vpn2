@@ -1,0 +1,104 @@
+version: "3.8"
+
+# ============================================================
+# INTEGRANTE 1 — COORDINADOR (10.10.10.1 en ZeroTier)
+# Ejecutar: docker compose -f docker-compose.coordinator.yml up --build
+# ============================================================
+
+services:
+  coordinator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: iot_coordinator
+    environment:
+      - ROLE=coordinator
+      - LISTEN_PORT=8080
+      - RUST_LOG=info
+      # NETEM_PROFILE se configura manualmente para cada escenario de prueba
+      # Opciones: baseline | latencia_iot | perdida_paquetes | enlace_limitado
+      - NETEM_PROFILE=${NETEM_PROFILE:-baseline}
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "8080:8080"   # API REST del coordinador (accesible en la red ZeroTier)
+    networks:
+      - iotnet
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    volumes:
+      - coordinator_logs:/var/log/iot
+
+  # Sensor local del coordinador (opcional, para pruebas)
+  sensor_local:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: iot_sensor_local
+    environment:
+      - ROLE=sensor
+      - SENSOR_ID=sensor-coord-1
+      - EDGE_URL=http://edge_local:9090
+      - PUBLISH_INTERVAL_MS=1000
+      - SENSOR_UNIT=celsius
+      - BASE_VALUE=22.0
+      - ANOMALY_THRESHOLD=35.0
+      - RUST_LOG=info
+    networks:
+      - iotnet
+    depends_on:
+      - edge_local
+    restart: unless-stopped
+
+  sensor_local_2:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: iot_sensor_local_2
+    environment:
+      - ROLE=sensor
+      - SENSOR_ID=sensor-coord-2
+      - EDGE_URL=http://edge_local:9090
+      - PUBLISH_INTERVAL_MS=750
+      - SENSOR_UNIT=pressure
+      - BASE_VALUE=1013.0
+      - ANOMALY_THRESHOLD=1050.0
+      - RUST_LOG=info
+    networks:
+      - iotnet
+    depends_on:
+      - edge_local
+    restart: unless-stopped
+
+  # Edge local del coordinador
+  edge_local:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: iot_edge_local
+    environment:
+      - ROLE=edge
+      - EDGE_ID=edge-coord
+      - COORDINATOR_URL=http://coordinator:8080
+      - LISTEN_PORT=9090
+      - RUST_LOG=info
+      - NETEM_PROFILE=${NETEM_PROFILE:-baseline}
+    cap_add:
+      - NET_ADMIN
+    networks:
+      - iotnet
+    depends_on:
+      - coordinator
+    restart: unless-stopped
+
+networks:
+  iotnet:
+    driver: bridge
+
+volumes:
+  coordinator_logs:

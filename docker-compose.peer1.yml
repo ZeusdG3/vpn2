@@ -1,0 +1,75 @@
+version: "3.8"
+
+# ============================================================
+# INTEGRANTE 2 — PEER 1 / EDGE NODE (10.10.10.2 en ZeroTier)
+# Ejecutar: docker compose -f docker-compose.peer1.yml up --build
+#
+# IMPORTANTE: Reemplazar COORDINATOR_IP con la IP ZeroTier del Integrante 1
+# Ejemplo: COORDINATOR_IP=10.10.10.1 docker compose -f docker-compose.peer1.yml up --build
+# ============================================================
+
+services:
+  edge_peer1:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: iot_edge_peer1
+    environment:
+      - ROLE=edge
+      - EDGE_ID=edge-peer1
+      # IP ZeroTier del coordinador (Integrante 1)
+      - COORDINATOR_URL=http://${COORDINATOR_IP:-10.10.10.1}:8080
+      - LISTEN_PORT=9090
+      - RUST_LOG=info
+      - NETEM_PROFILE=${NETEM_PROFILE:-worker1}
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "9090:9090"   # Accesible por los sensores en la red ZeroTier
+    networks:
+      - iotnet_peer1
+    restart: unless-stopped
+
+  sensor_peer1_a:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: iot_sensor_peer1_a
+    environment:
+      - ROLE=sensor
+      - SENSOR_ID=sensor-peer1-temp
+      - EDGE_URL=http://edge_peer1:9090
+      - PUBLISH_INTERVAL_MS=500
+      - SENSOR_UNIT=celsius
+      - BASE_VALUE=28.0
+      - ANOMALY_THRESHOLD=38.0
+      - RUST_LOG=info
+    networks:
+      - iotnet_peer1
+    depends_on:
+      - edge_peer1
+    restart: unless-stopped
+
+  sensor_peer1_b:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: iot_sensor_peer1_b
+    environment:
+      - ROLE=sensor
+      - SENSOR_ID=sensor-peer1-humidity
+      - EDGE_URL=http://edge_peer1:9090
+      - PUBLISH_INTERVAL_MS=800
+      - SENSOR_UNIT=percent_rh
+      - BASE_VALUE=65.0
+      - ANOMALY_THRESHOLD=90.0
+      - RUST_LOG=info
+    networks:
+      - iotnet_peer1
+    depends_on:
+      - edge_peer1
+    restart: unless-stopped
+
+networks:
+  iotnet_peer1:
+    driver: bridge

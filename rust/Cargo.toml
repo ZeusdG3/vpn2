@@ -1,0 +1,28 @@
+[package]
+name = "iot_pipeline"
+version = "0.2.0"
+edition = "2021"
+
+[[bin]]
+name = "sensor"
+path = "src/sensor.rs"
+
+[[bin]]
+name = "edge"
+path = "src/edge.rs"
+
+[[bin]]
+name = "coordinator"
+path = "src/coordinator.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+axum = "0.7"
+reqwest = { version = "0.12", features = ["json"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+tokio-util = "0.7"
