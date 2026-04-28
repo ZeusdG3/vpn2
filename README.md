@@ -16,9 +16,174 @@
                                ←────    edge-peer2 (puerto 9090)
                                          sensor-peer2-temp
                                          sensor-peer2-vibration
+
 ```
 
+- **Sensor**: genera una lectura cada 2 segundos (valor sinusoidal simulado). Envía `SensorReading` al Edge. Envía heartbeats cada 5s.
+- **Edge**: recibe lecturas de múltiples sensores, calcula media móvil de ventana 3, detecta anomalías (umbral 25.0). Reenvía `EdgeReport` al coordinador. Envía heartbeats cada 5s.
+- **Coordinador**: recibe reports y heartbeats, calcula métricas:
+  - Throughput total y por edge (msg/s)
+  - Latencia E2E (P50, P99 en ventana de 60s)
+  - Tasa de anomalías histórica
+  - Mensajes perdidos estimados (por gaps de secuencia)
+  - Uptime por nodo (sensores y edges)
+- Todo se muestra en la terminal cada 5 segundos formateado como tabla.
+
+El sistema es **totalmente dinámico**: basta con lanzar nuevos sensores/edges con IDs y direcciones distintas, y el coordinador los mostrará automáticamente.
+
+---
+
 **Comunicación:** Los edges se conectan al coordinador vía HTTP REST sobre la red ZeroTier (IPs 10.10.10.x). Los sensores se conectan a su edge local dentro de la red Docker de cada host.
+
+---
+
+## Requisitos de Software
+
+- **Rust** (versión 1.70 o superior)
+- **Cargo** (incluido con Rust)
+- **Git** (opcional, para clonar)
+
+Verifica tu versión:
+```bash
+
+rustc --version
+cargo --version
+
+```
+---
+# Algoritmo Rust
+---
+
+## Estructura del Proyecto
+
+El proyecto es un workspace de Cargo con tres bins:
+
+```
+
+ProyectoPipeline_IoT/
+├── Cargo.toml            # workspace con tres miembros
+├── common/
+│   ├── Cargo.toml
+│   └── src/lib.rs        # estructuras compartidas
+├── sensor/
+│   ├── Cargo.toml
+│   └── src/main.rs
+├── edge/
+│   ├── Cargo.toml
+│   └── src/main.rs
+└── coordinator/
+│   ├── Cargo.toml
+│   └── src/main.rs
+
+```
+
+---
+
+## Ejecución del Sistema
+
+### 1. Iniciar el Coordinador (única instancia)
+
+El coordinador escucha en:
+
+* Datos: 127.0.0.1:9000 (Localhost)
+* Heartbeats: 127.0.0.1:9002
+  
+```
+
+cargo run --bin coordinator
+
+```
+
+Verás las métricas actualizadas cada 5 segundos.
+
+---
+
+### 2. Iniciar un Edge (pueden ser múltiples)
+
+Cada edge necesita un ID único y un puerto de escucha para sensores.
+
+Ejemplo: Edge ID=100 escuchando en puerto 9001
+
+```
+
+cargo run --bin edge -- --id 100 --listen-addr 127.0.0.1:9001
+
+```
+
+#### Argumentos disponibles:
+
+`-i, --id` (obligatorio, ej 100)
+
+`-l, --listen-addr` (dirección donde escucha sensores, por defecto 127.0.0.1:9001)
+
+`--coord-addr` (dirección del coordinador para datos, por defecto 127.0.0.1:9000)
+
+`--heartbeat-addr` (dirección del coordinador para heartbeats, por defecto 127.0.0.1:9002)
+
+---
+
+### 3. Iniciar uno o más Sensores
+
+Cada sensor necesita un ID único y la dirección del edge al que se conecta.
+
+Ejemplo: Sensor ID=1 conectándose al edge de puerto 9001
+
+```
+
+cargo run --bin sensor -- --id 1 --edge-addr 127.0.0.1:9001
+
+```
+
+#### Argumentos:
+
+`-i, --id` (ID del sensor)
+
+`-e, --edge-addr` (dirección del edge, ej 127.0.0.1:9001)
+
+`--heartbeat-addr` (dirección del coordinador para heartbeats, por defecto 127.0.0.1:9002)
+
+---
+
+### Ejemplo con múltiples nodos en una sola máquina
+
+```
+
+Terminal	Comando
+1	cargo run --bin coordinator
+2	cargo run --bin edge -- --id 100 --listen-addr 127.0.0.1:9001
+3	cargo run --bin edge -- --id 101 --listen-addr 127.0.0.1:9003
+4	cargo run --bin sensor -- --id 1 --edge-addr 127.0.0.1:9001
+5	cargo run --bin sensor -- --id 2 --edge-addr 127.0.0.1:9001
+6	cargo run --bin sensor -- --id 3 --edge-addr 127.0.0.1:9003
+
+```
+
+---
+
+### Ejecución en Múltiples Máquinas
+
+Solo necesitaas cambiar las direcciones IP en los argumentos:
+
+Máquina A (Coordinador):
+`cargo run --bin coordinator (escucha en 0.0.0.0:9000 y 0.0.0.0:9002)`
+
+Máquina B (Edge):
+`cargo run --bin edge -- --id 100 --listen-addr 0.0.0.0:9001 --coord-addr <IP_A>:9000 --heartbeat-addr <IP_A>:9002`
+
+Máquina C (Sensor):
+`cargo run --bin sensor -- --id 1 --edge-addr <IP_B>:9001 --heartbeat-addr <IP_A>:9002`
+
+---
+
+### Personalización
+* Cambiar umbral de anomalía: modifica `threshold` en `edge/src/main.rs`.
+* Frecuencia de sensores: cambia `Duration::from_secs(2)` en sensor.
+* Ventana de media móvil: cambia `MovingAverage::new(3)`.
+* Puertos y direcciones: usa argumentos de línea de comandos (ver arriba).
+
+---
+
+# VPN
 
 ---
 
