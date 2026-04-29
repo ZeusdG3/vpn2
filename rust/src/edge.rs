@@ -1,8 +1,6 @@
 // src/edge.rs — Nodo Edge: recibe lecturas, promedio móvil, detecta anomalías, reenvía
-mod messages;
-
 use axum::{Router, extract::State, http::StatusCode, routing::post, Json};
-use messages::{EdgeReport, Heartbeat, SensorReading, now_ms};
+use iot_pipeline::{EdgeReport, Heartbeat, SensorReading, now_ms};
 use std::{
     collections::{HashMap, VecDeque},
     env,

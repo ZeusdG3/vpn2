@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-peer2
+  namespace: iot-pipeline
+  labels:
+    app: edge
+    peer: peer2
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: edge
+      peer: peer2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: edge
+        peer: peer2
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: [edge]
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: edge
+          image: iot-pipeline:latest
+          imagePullPolicy: Never
+          env:
+            - name: ROLE
+              value: "edge"
+            - name: EDGE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: LISTEN_PORT
+              value: "9090"
+            - name: COORDINATOR_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: iot-config
+                  key: COORDINATOR_URL
+            - name: RUST_LOG
+              valueFrom:
+                configMapKeyRef:
+                  name: iot-config
+                  key: RUST_LOG
+            - name: NETEM_PROFILE
+              value: "worker2"
+          ports:
+            - containerPort: 9090
+              name: http
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          livenessProbe:
+            tcpSocket:
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 5

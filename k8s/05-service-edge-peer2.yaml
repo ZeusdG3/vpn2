@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-peer2-svc
+  namespace: iot-pipeline
+  labels:
+    app: edge
+    peer: peer2
+spec:
+  selector:
+    app: edge
+    peer: peer2
+  type: NodePort
+  ports:
+    - name: http
+      protocol: TCP
+      port: 9090
+      targetPort: 9090
+      nodePort: 30091   # Puerto distinto al peer1 para evitar conflicto si corren en el mismo nodo

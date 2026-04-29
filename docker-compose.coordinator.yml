@@ -15,13 +15,11 @@ services:
       - ROLE=coordinator
       - LISTEN_PORT=8080
       - RUST_LOG=info
-      # NETEM_PROFILE se configura manualmente para cada escenario de prueba
-      # Opciones: baseline | latencia_iot | perdida_paquetes | enlace_limitado
       - NETEM_PROFILE=${NETEM_PROFILE:-baseline}
     cap_add:
       - NET_ADMIN
     ports:
-      - "8080:8080"   # API REST del coordinador (accesible en la red ZeroTier)
+      - "8080:8080"
     networks:
       - iotnet
     restart: unless-stopped
@@ -30,16 +28,34 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 15s
-    volumes:
-      - coordinator_logs:/var/log/iot
+      start_period: 20s
 
-  # Sensor local del coordinador (opcional, para pruebas)
-  sensor_local:
+  edge_local:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    container_name: iot_sensor_local
+    container_name: iot_edge_local
+    environment:
+      - ROLE=edge
+      - EDGE_ID=edge-coord
+      - COORDINATOR_URL=http://coordinator:8080
+      - LISTEN_PORT=9090
+      - RUST_LOG=info
+      - NETEM_PROFILE=${NETEM_PROFILE:-baseline}
+    cap_add:
+      - NET_ADMIN
+    networks:
+      - iotnet
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    restart: unless-stopped
+
+  sensor_local_1:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: iot_sensor_local_1
     environment:
       - ROLE=sensor
       - SENSOR_ID=sensor-coord-1
@@ -75,30 +91,6 @@ services:
       - edge_local
     restart: unless-stopped
 
-  # Edge local del coordinador
-  edge_local:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    container_name: iot_edge_local
-    environment:
-      - ROLE=edge
-      - EDGE_ID=edge-coord
-      - COORDINATOR_URL=http://coordinator:8080
-      - LISTEN_PORT=9090
-      - RUST_LOG=info
-      - NETEM_PROFILE=${NETEM_PROFILE:-baseline}
-    cap_add:
-      - NET_ADMIN
-    networks:
-      - iotnet
-    depends_on:
-      - coordinator
-    restart: unless-stopped
-
 networks:
   iotnet:
     driver: bridge
-
-volumes:
-  coordinator_logs:

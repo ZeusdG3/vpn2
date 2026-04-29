@@ -1,4 +1,4 @@
-# Proyecto 2 — Pipeline IoT Distribuido en Rust
+# Proyecto 2 — Pipeline IoT Distribuido en Rust + k3s
 ## Equipo Pyrrinoids — IL355 Programación de Sistemas Avanzados
 
 ---
@@ -6,546 +6,488 @@
 ## Arquitectura general
 
 ```
-[Integrante 1 — 10.10.10.1]          [Integrante 2 — 10.10.10.2]
-  coordinator (puerto 8080)    ←────    edge-peer1 (puerto 9090)
-  edge-coord  (puerto 9090)              sensor-peer1-temp
-  sensor-coord-1                         sensor-peer1-humidity
-  sensor-coord-2
-
-                                        [Integrante 3 — 10.10.10.3]
-                               ←────    edge-peer2 (puerto 9090)
-                                         sensor-peer2-temp
-                                         sensor-peer2-vibration
-
+[Integrante 1 — 10.10.10.1]           [Integrante 2 — 10.10.10.2]
+  Docker:                       <────   k3s cluster (server + agent):
+    coordinator (puerto 8080)             Deployment: edge-peer1 (2 réplicas)
+    edge-coord                            Deployment: sensors-peer1
+    sensor-coord-1                        NodePort: 30090
+    sensor-coord-2
+                                         [Integrante 3 — 10.10.10.3]
+                                <────   k3s cluster (agent):
+                                          Deployment: edge-peer2 (2 réplicas)
+                                          Deployment: sensors-peer2
+                                          NodePort: 30091
 ```
 
-- **Sensor**: genera una lectura cada 2 segundos (valor sinusoidal simulado). Envía `SensorReading` al Edge. Envía heartbeats cada 5s.
-- **Edge**: recibe lecturas de múltiples sensores, calcula media móvil de ventana 3, detecta anomalías (umbral 25.0). Reenvía `EdgeReport` al coordinador. Envía heartbeats cada 5s.
-- **Coordinador**: recibe reports y heartbeats, calcula métricas:
-  - Throughput total y por edge (msg/s)
-  - Latencia E2E (P50, P99 en ventana de 60s)
-  - Tasa de anomalías histórica
-  - Mensajes perdidos estimados (por gaps de secuencia)
-  - Uptime por nodo (sensores y edges)
-- Todo se muestra en la terminal cada 5 segundos formateado como tabla.
-
-El sistema es **totalmente dinámico**: basta con lanzar nuevos sensores/edges con IDs y direcciones distintas, y el coordinador los mostrará automáticamente.
+Red ZeroTier: 10.10.10.0/24 — todos los nodos se ven entre si.
+Nivel 3: ZeroTier usado por CGNAT. Compensaciones: tc netem + Kubernetes obligatorio.
 
 ---
 
-**Comunicación:** Los edges se conectan al coordinador vía HTTP REST sobre la red ZeroTier (IPs 10.10.10.x). Los sensores se conectan a su edge local dentro de la red Docker de cada host.
-
----
-
-## Requisitos de Software
-
-- **Rust** (versión 1.70 o superior)
-- **Cargo** (incluido con Rust)
-- **Git** (opcional, para clonar)
-
-Verifica tu versión:
-```bash
-
-rustc --version
-cargo --version
-
-```
----
-# Algoritmo Rust
----
-
-## Estructura del Proyecto
-
-El proyecto es un workspace de Cargo con tres bins:
-
-```
-
-ProyectoPipeline_IoT/
-├── Cargo.toml            # workspace con tres miembros
-├── common/
-│   ├── Cargo.toml
-│   └── src/lib.rs        # estructuras compartidas
-├── sensor/
-│   ├── Cargo.toml
-│   └── src/main.rs
-├── edge/
-│   ├── Cargo.toml
-│   └── src/main.rs
-└── coordinator/
-│   ├── Cargo.toml
-│   └── src/main.rs
-
-```
-
----
-
-## Ejecución del Sistema
-
-### 1. Iniciar el Coordinador (única instancia)
-
-El coordinador escucha en:
-
-* Datos: 127.0.0.1:9000 (Localhost)
-* Heartbeats: 127.0.0.1:9002
-  
-```
-
-cargo run --bin coordinator
-
-```
-
-Verás las métricas actualizadas cada 5 segundos.
-
----
-
-### 2. Iniciar un Edge (pueden ser múltiples)
-
-Cada edge necesita un ID único y un puerto de escucha para sensores.
-
-Ejemplo: Edge ID=100 escuchando en puerto 9001
-
-```
-
-cargo run --bin edge -- --id 100 --listen-addr 127.0.0.1:9001
-
-```
-
-#### Argumentos disponibles:
-
-`-i, --id` (obligatorio, ej 100)
-
-`-l, --listen-addr` (dirección donde escucha sensores, por defecto 127.0.0.1:9001)
-
-`--coord-addr` (dirección del coordinador para datos, por defecto 127.0.0.1:9000)
-
-`--heartbeat-addr` (dirección del coordinador para heartbeats, por defecto 127.0.0.1:9002)
-
----
-
-### 3. Iniciar uno o más Sensores
-
-Cada sensor necesita un ID único y la dirección del edge al que se conecta.
-
-Ejemplo: Sensor ID=1 conectándose al edge de puerto 9001
-
-```
-
-cargo run --bin sensor -- --id 1 --edge-addr 127.0.0.1:9001
-
-```
-
-#### Argumentos:
-
-`-i, --id` (ID del sensor)
-
-`-e, --edge-addr` (dirección del edge, ej 127.0.0.1:9001)
-
-`--heartbeat-addr` (dirección del coordinador para heartbeats, por defecto 127.0.0.1:9002)
-
----
-
-### Ejemplo con múltiples nodos en una sola máquina
-
-```
-
-Terminal	Comando
-1	cargo run --bin coordinator
-2	cargo run --bin edge -- --id 100 --listen-addr 127.0.0.1:9001
-3	cargo run --bin edge -- --id 101 --listen-addr 127.0.0.1:9003
-4	cargo run --bin sensor -- --id 1 --edge-addr 127.0.0.1:9001
-5	cargo run --bin sensor -- --id 2 --edge-addr 127.0.0.1:9001
-6	cargo run --bin sensor -- --id 3 --edge-addr 127.0.0.1:9003
-
-```
-
----
-
-### Ejecución en Múltiples Máquinas
-
-Solo necesitaas cambiar las direcciones IP en los argumentos:
-
-Máquina A (Coordinador):
-`cargo run --bin coordinator (escucha en 0.0.0.0:9000 y 0.0.0.0:9002)`
-
-Máquina B (Edge):
-`cargo run --bin edge -- --id 100 --listen-addr 0.0.0.0:9001 --coord-addr <IP_A>:9000 --heartbeat-addr <IP_A>:9002`
-
-Máquina C (Sensor):
-`cargo run --bin sensor -- --id 1 --edge-addr <IP_B>:9001 --heartbeat-addr <IP_A>:9002`
-
----
-
-### Personalización
-* Cambiar umbral de anomalía: modifica `threshold` en `edge/src/main.rs`.
-* Frecuencia de sensores: cambia `Duration::from_secs(2)` en sensor.
-* Ventana de media móvil: cambia `MovingAverage::new(3)`.
-* Puertos y direcciones: usa argumentos de línea de comandos (ver arriba).
-
----
-
-# VPN
-
----
-
-## PASO 0 — Instalar dependencias (TODOS los integrantes)
-
-En cada máquina virtual Ubuntu 24.04:
+## PASO 0 — Instalar dependencias (LOS 3 INTEGRANTES, en cada VM)
 
 ```bash
-# Actualizar sistema
 sudo apt update && sudo apt upgrade -y
 
-# Instalar Docker
+# Docker
 sudo apt install -y ca-certificates curl gnupg
 sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+    sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 sudo chmod a+r /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+    https://download.docker.com/linux/ubuntu \
+    $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+    sudo tee /etc/apt/sources.list.d/docker.list
 sudo apt update
 sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
-# Agregar tu usuario al grupo docker (para no usar sudo)
 sudo usermod -aG docker $USER
 newgrp docker
 
-# Verificar Docker
-docker run hello-world
+# Herramientas de red
+sudo apt install -y iproute2 iputils-ping iperf3 curl net-tools
 
-# Instalar herramientas de red
-sudo apt install -y iproute2 iputils-ping iperf3 curl
-
-# Instalar ZeroTier (si no está instalado)
+# ZeroTier (si no esta instalado)
 curl -s https://install.zerotier.com | sudo bash
-
-# Verificar ZeroTier
 sudo zerotier-cli status
 ```
 
 ---
 
-## PASO 1 — Configurar ZeroTier (si no está hecho)
+## PASO 1 — Verificar ZeroTier y abrir puertos (LOS 3 INTEGRANTES)
 
 ```bash
-# Unirse a la red ZeroTier del equipo (reemplazar NETWORK_ID)
-sudo zerotier-cli join <NETWORK_ID>
+# Ver tu IP ZeroTier
+ip addr show | grep -A2 "zt"
 
-# Verificar que la red aparece
-sudo zerotier-cli listnetworks
+# Verificar conectividad (desde Integrantes 2 y 3)
+ping -c 4 10.10.10.1
 
-# Ver tu IP ZeroTier asignada
-ip addr show | grep zt
-# O: sudo zerotier-cli listnetworks (columna "IP/CIDR")
-```
-
-**En my.zerotier.com (el que creó la red):**
-- Aprobar cada miembro en la sección "Members"
-- Asignar IPs manualmente: 10.10.10.1, 10.10.10.2, 10.10.10.3
-
-**Verificar conectividad entre máquinas:**
-```bash
-# Desde Integrante 2 o 3:
-ping 10.10.10.1   # debe responder
-
-# Desde Integrante 1:
-ping 10.10.10.2
-ping 10.10.10.3
-```
-
----
-
-## PASO 2 — Clonar/copiar el proyecto (TODOS)
-
-```bash
-# Opción A: clonar desde git (si tienen repo)
-git clone <URL_REPO> proyecto2
-cd proyecto2
-
-# Opción B: copiar el zip y descomprimir
-unzip proyecto2.zip
-cd proyecto2
-```
-
----
-
-## PASO 3 — Abrir puertos en firewall (TODOS)
-
-```bash
-# En Ubuntu con ufw:
-sudo ufw allow 22/tcp        # SSH (ya debería estar abierto)
-sudo ufw allow 8080/tcp      # Coordinador (solo Integrante 1)
-sudo ufw allow 9090/tcp      # Edge nodes (Integrantes 2 y 3)
-sudo ufw allow 5201/tcp      # iperf3
-sudo ufw allow 5201/udp      # iperf3 UDP
+# Abrir todos los puertos necesarios
+sudo ufw allow 22/tcp
+sudo ufw allow 8080/tcp     # Coordinador
+sudo ufw allow 9090/tcp     # Edge nodes
+sudo ufw allow 5201/tcp     # iperf3
+sudo ufw allow 5201/udp
+sudo ufw allow 30090/tcp    # NodePort edge-peer1
+sudo ufw allow 30091/tcp    # NodePort edge-peer2
+sudo ufw allow 6443/tcp     # k3s API server
+sudo ufw allow 8472/udp     # k3s Flannel VXLAN
+sudo ufw allow 10250/tcp    # k3s kubelet
 sudo ufw reload
 sudo ufw status
 ```
 
 ---
 
-## PASO 4 — INTEGRANTE 1: Levantar el Coordinador
+## PASO 2 — Copiar el proyecto (LOS 3 INTEGRANTES)
 
 ```bash
-cd proyecto2
+unzip proyecto2.zip -d ~
+cd ~/proyecto2
+```
 
-# Construir imagen Docker
+---
+
+## INTEGRANTE 1 — COORDINADOR (10.10.10.1)
+
+### Instalar k3s como SERVER (nodo master)
+
+```bash
+# OPCION FACIL: usar el script que detecta tu interfaz ZeroTier automaticamente
+# y genera el comando exacto para ti
+cd ~/proyecto2
+bash scripts/get-zt-iface.sh server
+
+# El script te mostrara el comando exacto. Copiarlo y ejecutarlo.
+# Ejemplo de lo que genera:
+# curl -sfL https://get.k3s.io | \
+#     INSTALL_K3S_EXEC="server \
+#         --node-ip=10.10.10.1 \
+#         --advertise-address=10.10.10.1 \
+#         --flannel-iface=ztabcd1234 \
+#         --disable=traefik" \
+#     sh -
+
+# Verificar que arranco
+sudo systemctl status k3s
+
+# Configurar kubectl
+mkdir -p ~/.kube
+sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+sudo chown $USER:$USER ~/.kube/config
+
+# Verificar nodo (debe aparecer Ready en ~30 segundos)
+kubectl get nodes
+
+# Obtener el token para que los otros integrantes se unan
+# Copiar este token y enviarlo a los Integrantes 2 y 3
+sudo cat /var/lib/rancher/k3s/server/node-token
+
+# Compartir el kubeconfig con los otros integrantes
+# Enviar el contenido de este archivo (cambiar la IP antes de enviarlo)
+cat ~/.kube/config
+```
+
+### Levantar el Coordinador con Docker
+
+```bash
+cd ~/proyecto2
+
 docker compose -f docker-compose.coordinator.yml build
-
-# Levantar coordinador + edge local + sensores locales
 docker compose -f docker-compose.coordinator.yml up -d
 
-# Ver logs en tiempo real
-docker compose -f docker-compose.coordinator.yml logs -f
-
-# Verificar que responde:
+# Verificar que responde
 curl http://localhost:8080/status
 curl http://localhost:8080/metrics
 
-# Levantar iperf3 server (para pruebas de escenarios)
+# Levantar iperf3 para las pruebas de escenarios
 iperf3 -s -p 5201 &
 ```
 
-**Verificar desde otra máquina:**
+### Aplicar manifiestos de Kubernetes
+
 ```bash
-# Desde Integrante 2 o 3:
-curl http://10.10.10.1:8080/status
+cd ~/proyecto2
+
+# Verificar que la IP del coordinador es correcta en el ConfigMap
+cat k8s/01-configmap.yaml
+# Si la IP ZeroTier no es 10.10.10.1, editar:
+# nano k8s/01-configmap.yaml
+
+# Aplicar todos los manifiestos
+kubectl apply -f k8s/
+
+# Verificar que se crearon
+kubectl get all -n iot-pipeline
 ```
 
 ---
 
-## PASO 5 — INTEGRANTE 2: Levantar Peer 1
+## INTEGRANTE 2 — PEER 1 (10.10.10.2)
+
+### Instalar k3s como AGENT
+
+Necesitas del Integrante 1: el TOKEN (lo obtiene con `sudo cat /var/lib/rancher/k3s/server/node-token`).
 
 ```bash
-cd proyecto2
+# OPCION FACIL: usar el script con tu TOKEN
+cd ~/proyecto2
+bash scripts/get-zt-iface.sh peer1 TOKEN_DEL_INTEGRANTE_1 10.10.10.1
 
-# Construir imagen
-docker compose -f docker-compose.peer1.yml build
+# El script genera el comando exacto. Copiarlo y ejecutarlo.
 
-# Levantar con la IP del coordinador
-COORDINATOR_IP=10.10.10.1 docker compose -f docker-compose.peer1.yml up -d
+# Verificar que el agent arranco
+sudo systemctl status k3s-agent
+```
 
-# Ver logs
-docker compose -f docker-compose.peer1.yml logs -f
+### Configurar kubectl
 
-# En los logs del coordinador (Integrante 1) deberías ver:
-# [coordinator] Nuevo nodo registrado: 'edge-peer1' rol='edge'
+```bash
+mkdir -p ~/.kube
+# El Integrante 1 te envia el contenido de su ~/.kube/config
+# Pegarlo en este archivo y cambiar la IP:
+nano ~/.kube/config
+# Buscar la linea que dice:  server: https://127.0.0.1:6443
+# Cambiarla por:             server: https://10.10.10.1:6443
+
+# Verificar que ves el cluster
+kubectl get nodes
+# Deben aparecer el nodo del Integrante 1 y el tuyo (Ready)
+```
+
+### Construir y cargar imagen en k3s
+
+```bash
+cd ~/proyecto2
+
+# Construir la imagen y cargarla en k3s
+bash scripts/build-and-load.sh
+
+# Verificar imagen disponible
+sudo k3s ctr images list | grep iot-pipeline
+```
+
+### Verificar tus pods
+
+Los manifiestos ya los aplico el Integrante 1. Los pods de edge-peer1 y sensors-peer1
+se programan automaticamente en tu nodo.
+
+```bash
+# Ver pods en tu nodo
+kubectl get pods -n iot-pipeline -o wide
+# Los pods edge-peer1-XXXX deben estar en la columna NODE con tu IP
+
+# Ver logs de los pods edge
+kubectl logs -n iot-pipeline -l app=edge,peer=peer1 -f --max-log-requests=4
+
+# Ver que el Service NodePort existe
+kubectl get svc -n iot-pipeline
+# edge-peer1-svc debe tener puerto 30090
 ```
 
 ---
 
-## PASO 6 — INTEGRANTE 3: Levantar Peer 2
+## INTEGRANTE 3 — PEER 2 (10.10.10.3)
+
+### Instalar k3s como AGENT
 
 ```bash
-cd proyecto2
+# OPCION FACIL: usar el script con tu TOKEN
+cd ~/proyecto2
+bash scripts/get-zt-iface.sh peer2 TOKEN_DEL_INTEGRANTE_1 10.10.10.1
 
-# Construir imagen
-docker compose -f docker-compose.peer2.yml build
+# El script genera el comando exacto. Copiarlo y ejecutarlo.
 
-# Levantar con la IP del coordinador
-COORDINATOR_IP=10.10.10.1 docker compose -f docker-compose.peer2.yml up -d
+sudo systemctl status k3s-agent
+```
 
-# Ver logs
-docker compose -f docker-compose.peer2.yml logs -f
+### Configurar kubectl
+
+```bash
+mkdir -p ~/.kube
+nano ~/.kube/config
+# Pegar el config del Integrante 1
+# Cambiar server: https://127.0.0.1:6443 por server: https://10.10.10.1:6443
+
+kubectl get nodes
+```
+
+### Construir y cargar imagen
+
+```bash
+cd ~/proyecto2
+bash scripts/build-and-load.sh
+sudo k3s ctr images list | grep iot-pipeline
+```
+
+### Verificar pods del Peer 2
+
+```bash
+kubectl get pods -n iot-pipeline -o wide
+# Los pods edge-peer2-XXXX deben estar en tu nodo
+
+kubectl logs -n iot-pipeline -l app=edge,peer=peer2 -f --max-log-requests=4
 ```
 
 ---
 
-## PASO 7 — Verificar el sistema completo
+## PASO 5 — Verificar el sistema completo
 
 ```bash
-# Desde cualquier máquina
-bash scripts/verify.sh 10.10.10.1
+cd ~/proyecto2
 
-# Ver status del coordinador
+# Verificacion Kubernetes
+bash scripts/verify-k8s.sh 10.10.10.1
+
+# Ver todos los pods en tiempo real
+kubectl get pods -n iot-pipeline -w
+
+# Status del coordinador
 curl -s http://10.10.10.1:8080/status | python3 -m json.tool
 
-# Ver métricas en texto plano
+# Metricas completas
 curl -s http://10.10.10.1:8080/metrics
 ```
 
-Deberías ver en `/status`:
-- `active_edges` > 0 (al menos 2 edges activos)
-- `total_readings` incrementando
-- `throughput_msg_per_sec` > 0
+Lo que debe verse funcionando:
+- kubectl get nodes → 3 nodos en estado Ready
+- kubectl get pods -n iot-pipeline → 4 pods edge (2 por peer) + 2 pods sensor en Running
+- /status del coordinador → active_edges mayor a 0, total_readings creciendo
 
 ---
 
-## PASO 8 — Ejecutar escenarios tc netem (DOCUMENTACIÓN OBLIGATORIA)
-
-### En el coordinador (Integrante 1): levantar iperf3 server
-```bash
-iperf3 -s -p 5201
-```
-
-### En cada peer (Integrantes 2 y 3): ejecutar el script de escenarios
-```bash
-sudo bash scripts/scenarios.sh eth0 10.10.10.1
-```
-
-El script recorre automáticamente los 5 escenarios y guarda resultados en `output/escenarios/`.
-
-### Comandos manuales por escenario (para referencia en el reporte):
+## PASO 6 — Escenarios tc netem (INTEGRANTES 2 Y 3)
 
 ```bash
-# Ver interfaz ZeroTier
+# Encontrar la interfaz ZeroTier exacta
 ip link show | grep zt
+# Ejemplo: ztabcd1234
 
-# ESCENARIO 1: Baseline
-sudo tc qdisc del dev eth0 root 2>/dev/null; echo "Baseline activo"
-sudo tc qdisc show dev eth0
+# Ejecutar el script de escenarios (reemplazar la interfaz)
+sudo bash scripts/scenarios.sh ztXXXXXXXX 10.10.10.1
+```
 
-# ESCENARIO 2: Latencia IoT
-sudo tc qdisc del dev eth0 root 2>/dev/null
-sudo tc qdisc add dev eth0 root netem delay 80ms 20ms
-sudo tc qdisc show dev eth0
+### Comandos manuales por escenario
+
+```bash
+IFACE="ztXXXXXXXX"   # Reemplazar con tu interfaz ZeroTier real
+
+# Cargar modulo netem si es necesario
+sudo modprobe sch_netem
+
+# ESCENARIO 1 — Baseline (sin degradacion)
+sudo tc qdisc del dev $IFACE root 2>/dev/null; true
+tc qdisc show dev $IFACE
 iperf3 -c 10.10.10.1 -p 5201 -t 10
 ping -c 10 10.10.10.1
 
-# ESCENARIO 3: Pérdida de paquetes
-sudo tc qdisc del dev eth0 root 2>/dev/null
-sudo tc qdisc add dev eth0 root netem loss 8%
-sudo tc qdisc show dev eth0
+# ESCENARIO 2 — Latencia IoT
+sudo tc qdisc del dev $IFACE root 2>/dev/null; true
+sudo tc qdisc add dev $IFACE root netem delay 80ms 20ms
+tc qdisc show dev $IFACE
+iperf3 -c 10.10.10.1 -p 5201 -t 10
+ping -c 10 10.10.10.1
+
+# ESCENARIO 3 — Perdida de paquetes
+sudo tc qdisc del dev $IFACE root 2>/dev/null; true
+sudo tc qdisc add dev $IFACE root netem loss 8%
+tc qdisc show dev $IFACE
 iperf3 -c 10.10.10.1 -p 5201 -t 10
 ping -c 20 10.10.10.1
 
-# ESCENARIO 4: Enlace limitado
-sudo tc qdisc del dev eth0 root 2>/dev/null
-sudo tc qdisc add dev eth0 root netem rate 512kbit delay 50ms
-sudo tc qdisc show dev eth0
+# ESCENARIO 4 — Enlace limitado
+sudo tc qdisc del dev $IFACE root 2>/dev/null; true
+sudo tc qdisc add dev $IFACE root netem rate 512kbit delay 50ms
+tc qdisc show dev $IFACE
 iperf3 -c 10.10.10.1 -p 5201 -t 10
 
-# ESCENARIO 5: Falla de edge
-# Matar un contenedor edge
-docker stop iot_edge_peer1
-# Esperar 15s y verificar detección en logs del coordinador:
-# [coordinator] ALERTA: edge 'edge-peer1' sin heartbeat hace Xs
+# ESCENARIO 5 — Falla de pod edge (Kubernetes lo reinicia automaticamente)
+kubectl get pods -n iot-pipeline -l app=edge
+# Copiar el nombre de un pod y borrarlo:
+kubectl delete pod -n iot-pipeline <nombre-del-pod-edge>
+# Ver como Kubernetes lo reactiva:
+kubectl get pods -n iot-pipeline -w
+# Ver deteccion en logs del coordinador:
+docker logs iot_coordinator --tail=20
+# Verificar metricas post-recuperacion:
 curl http://10.10.10.1:8080/metrics
-# Recuperar el edge
-docker start iot_edge_peer1
-# Verificar reconexión automática en logs
 
 # Limpiar reglas al terminar
-sudo tc qdisc del dev eth0 root 2>/dev/null
+sudo tc qdisc del dev $IFACE root 2>/dev/null; true
 ```
 
 ---
 
-## PASO 9 — Evidencias a capturar (para el reporte)
+## PASO 7 — Evidencias para el reporte
 
 ```bash
-# 1. Contenedores corriendo
+# Cluster y nodos
+kubectl get nodes -o wide
+kubectl get all -n iot-pipeline
+
+# Deployments con replicas (evidencia clave de Kubernetes)
+kubectl get deployments -n iot-pipeline
+kubectl describe deployment edge-peer1 -n iot-pipeline
+kubectl describe deployment edge-peer2 -n iot-pipeline
+
+# Services NodePort
+kubectl get svc -n iot-pipeline
+
+# Pods con distribucion en nodos
+kubectl get pods -n iot-pipeline -o wide
+
+# Contenedores Docker del coordinador
 docker ps
 
-# 2. Red Docker interna
-docker network inspect bridge
-
-# 3. Estado de ZeroTier
+# ZeroTier
 sudo zerotier-cli listnetworks
 sudo zerotier-cli listpeers
 
-# 4. Reglas tc activas
-sudo tc qdisc show dev eth0
-sudo tc qdisc show dev <interfaz_zerotier>
+# Reglas tc durante escenarios
+sudo tc qdisc show dev ztXXXXXXXX
 
-# 5. Status y métricas del coordinador
+# API del coordinador
 curl -s http://10.10.10.1:8080/status | python3 -m json.tool
 curl -s http://10.10.10.1:8080/metrics
 
-# 6. Logs de comunicación
+# Logs del coordinador detectando nodos y anomalias
 docker logs iot_coordinator --tail=50
-docker logs iot_edge_peer1 --tail=20
 
-# 7. Ping entre nodos
-ping -c 5 10.10.10.2
-ping -c 5 10.10.10.3
+# Rollout status (para mostrar tolerancia a fallos)
+kubectl rollout status deployment/edge-peer1 -n iot-pipeline
+kubectl rollout status deployment/edge-peer2 -n iot-pipeline
 ```
 
 ---
 
-## Comandos de operación cotidiana
+## Comandos utiles de operacion
 
 ```bash
-# Detener todo (en cada máquina)
+# Logs de todos los pods edge en tiempo real
+kubectl logs -n iot-pipeline -l app=edge -f --max-log-requests=8
+
+# Reiniciar un deployment completo
+kubectl rollout restart deployment/edge-peer1 -n iot-pipeline
+
+# Escalar replicas (para mostrar escalabilidad)
+kubectl scale deployment edge-peer1 --replicas=3 -n iot-pipeline
+kubectl scale deployment edge-peer1 --replicas=2 -n iot-pipeline
+
+# Matar un pod (k3s lo reinicia solo, util para escenario 5)
+kubectl delete pod -n iot-pipeline <nombre-pod>
+
+# Ver eventos del cluster
+kubectl get events -n iot-pipeline --sort-by='.lastTimestamp'
+
+# Detener todo
 docker compose -f docker-compose.coordinator.yml down   # Integrante 1
-docker compose -f docker-compose.peer1.yml down         # Integrante 2
-docker compose -f docker-compose.peer2.yml down         # Integrante 3
+sudo systemctl stop k3s-agent                           # Integrantes 2 y 3
+sudo systemctl stop k3s                                 # Integrante 1
 
-# Ver logs de un contenedor específico
-docker logs -f iot_coordinator
-docker logs -f iot_edge_peer1
-
-# Reiniciar un servicio
-docker restart iot_edge_peer1
-
-# Cambiar escenario de red sin reiniciar el sistema
-# (aplica tc directamente, el contenedor no necesita reiniciarse)
-sudo tc qdisc del dev eth0 root 2>/dev/null
-sudo tc qdisc add dev eth0 root netem delay 80ms 20ms
-
-# Escalar workers (si se necesita más de 1 edge por peer)
-# Cambiar EDGE_ID en el compose y levantar con otro nombre
+# Reiniciar
+sudo systemctl restart k3s
+sudo systemctl restart k3s-agent
 ```
 
 ---
 
-## Justificación técnica de ZeroTier (para la sección obligatoria del reporte)
+## Solucion de problemas
 
-Los tres integrantes del equipo operan bajo CGNAT, lo que impide la conectividad entrante sin IP pública. Se evaluaron las siguientes alternativas:
-
-1. **WireGuard hub propio**: Requiere al menos un nodo con IP pública estática. Ningún integrante dispone de una.
-2. **WireGuard con VPS gratuito (Oracle Free Tier)**: Evaluado, pero el proceso de aprovisionamiento excedía el tiempo disponible para la entrega y no garantizaba disponibilidad inmediata.
-3. **ZeroTier** (solución adoptada): Proporciona una red virtual overlay peer-to-peer cifrada con traversal automático de NAT, sin requerir infraestructura propia. El plano de control es administrado por ZeroTier Inc., pero el tráfico de datos es P2P y cifrado. Es open source (Business Source License).
-
-**Compensaciones implementadas** (según tabla Nivel 3):
-- tc netem documentado con 5 escenarios distintos, medición iperf3 antes/después en cada uno.
-- Backoff exponencial y reintentos implementados en todos los nodos Rust.
-- Reconexión automática de edges sin intervención manual.
-
----
-
-## Variables de entorno de referencia
-
-| Variable | Descripción | Default |
-|---|---|---|
-| `COORDINATOR_IP` | IP ZeroTier del coordinador | `10.10.10.1` |
-| `NETEM_PROFILE` | Perfil de degradación de red | `baseline` |
-| `RUST_LOG` | Nivel de logging | `info` |
-| `PUBLISH_INTERVAL_MS` | Frecuencia de publicación del sensor | `500` |
-| `ANOMALY_THRESHOLD` | Valor que dispara anomalía | según sensor |
-| `BASE_VALUE` | Valor base del sensor | según sensor |
-| `EDGE_ID` | Identificador del edge node | `edge-1` |
-| `SENSOR_ID` | Identificador del sensor | `sensor-1` |
-
----
-
-## Solución de problemas
-
-**Edge no conecta al coordinador:**
+### k3s agent no se conecta al server
 ```bash
-# Verificar conectividad ZeroTier
-ping 10.10.10.1
-# Verificar que el coordinador escucha
-curl http://10.10.10.1:8080/status
-# Verificar firewall
-sudo ufw status
+# Verificar puerto 6443 abierto en Integrante 1
+sudo ufw allow 6443/tcp
+# Probar conectividad
+curl -k https://10.10.10.1:6443
+# Ver logs del agent
+sudo journalctl -u k3s-agent -f
+```
+
+### Pods en estado Pending
+```bash
+kubectl describe pod -n iot-pipeline <nombre-pod>
+# "no nodes available" -> el nodo agent no se unio correctamente
+# "image not found"    -> ejecutar build-and-load.sh en ese nodo
+```
+
+### Imagen no encontrada en k3s
+```bash
+# Debe ejecutarse en CADA nodo donde correran los pods
+bash scripts/build-and-load.sh
+sudo k3s ctr images list | grep iot-pipeline
+```
+
+### tc: No such file or directory
+```bash
+sudo modprobe sch_netem
+ip link show | grep zt   # verificar nombre exacto de interfaz
+```
+
+### Pods edge no conectan al coordinador
+```bash
+# Probar desde dentro del pod
+kubectl exec -n iot-pipeline <pod-edge> -- curl http://10.10.10.1:8080/status
+# Si falla: verificar firewall del Integrante 1
 sudo ufw allow 8080/tcp
 ```
 
-**tc: No such file or directory:**
-```bash
-# El contenedor necesita NET_ADMIN (ya configurado en los compose)
-# Si aplicas tc en el host:
-sudo modprobe sch_netem
-sudo tc qdisc show dev eth0
-```
+---
 
-**Docker: permission denied:**
-```bash
-sudo usermod -aG docker $USER
-newgrp docker
-```
+## Justificacion tecnica de ZeroTier (seccion obligatoria del reporte)
 
-**ZeroTier sin asignar IP:**
-```bash
-# En my.zerotier.com: aprobar el miembro y asignar IP manualmente
-sudo zerotier-cli listnetworks  # ver estado
-```
+Los tres integrantes operan bajo CGNAT, lo que impide recibir conexiones entrantes sin IP publica. Se evaluaron las siguientes alternativas:
+
+WireGuard hub propio: Requiere al menos un nodo con IP publica estatica. Ninguno de los integrantes dispone de ella en su proveedor de internet residencial.
+
+WireGuard con VPS gratuito: Se evaluo Oracle Free Tier y Fly.io. El proceso de aprovisionamiento presento demoras en la aprobacion de cuentas y no garantizaba disponibilidad inmediata para la entrega.
+
+ZeroTier (solucion adoptada): Proporciona una red virtual overlay peer-to-peer con traversal automatico de CGNAT y NAT, cifrado de capa 2 mediante curva eliptica, y administracion del plano de control en la nube de ZeroTier Inc. El trafico de datos es peer-to-peer y cifrado extremo a extremo. El software es de codigo abierto (Business Source License 1.1).
+
+Compensaciones implementadas segun tabla Nivel 3:
+- tc netem documentado con 5 escenarios distintos, medicion iperf3 antes y despues en cada uno, aplicado sobre la interfaz ZeroTier (no eth0, para afectar solo el trafico inter-nodo real).
+- Kubernetes con k3s: edge nodes desplegados como Deployments con 2 replicas cada uno, con RollingUpdate strategy y health checks.
+- Backoff exponencial y reintentos automaticos en todos los nodos Rust (sensor, edge, coordinator).
+- Reconexion automatica de edges sin intervencion manual.
+- Deteccion de nodos caidos en menos de 10 segundos mediante heartbeats cada 3 segundos.

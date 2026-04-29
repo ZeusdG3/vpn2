@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-peer1
+  namespace: iot-pipeline
+  labels:
+    app: edge
+    peer: peer1
+spec:
+  replicas: 2          # Mínimo requerido por el proyecto (Nivel 3)
+  selector:
+    matchLabels:
+      app: edge
+      peer: peer1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: edge
+        peer: peer1
+    spec:
+      # Intentar distribuir réplicas en distintos nodos si es posible
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: [edge]
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: edge
+          # Imagen construida localmente con k3s
+          # Se carga con: sudo k3s ctr images import edge.tar
+          image: iot-pipeline:latest
+          imagePullPolicy: Never   # Usar imagen local, no Docker Hub
+          env:
+            - name: ROLE
+              value: "edge"
+            - name: EDGE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name   # Usa el nombre del pod como ID único
+            - name: LISTEN_PORT
+              value: "9090"
+            - name: COORDINATOR_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: iot-config
+                  key: COORDINATOR_URL
+            - name: RUST_LOG
+              valueFrom:
+                configMapKeyRef:
+                  name: iot-config
+                  key: RUST_LOG
+            - name: NETEM_PROFILE
+              value: "worker1"
+          ports:
+            - containerPort: 9090
+              name: http
+          # Privilegios necesarios para tc netem
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          # Health checks
+          livenessProbe:
+            tcpSocket:
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 5

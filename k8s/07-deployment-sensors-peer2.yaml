@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sensors-peer2
+  namespace: iot-pipeline
+  labels:
+    app: sensor
+    peer: peer2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sensor
+      peer: peer2
+  template:
+    metadata:
+      labels:
+        app: sensor
+        peer: peer2
+    spec:
+      containers:
+        - name: sensor-temp
+          image: iot-pipeline:latest
+          imagePullPolicy: Never
+          env:
+            - name: ROLE
+              value: "sensor"
+            - name: SENSOR_ID
+              value: "sensor-peer2-temp"
+            - name: EDGE_URL
+              value: "http://edge-peer2-svc:9090"
+            - name: PUBLISH_INTERVAL_MS
+              value: "600"
+            - name: SENSOR_UNIT
+              value: "celsius"
+            - name: BASE_VALUE
+              value: "31.0"
+            - name: ANOMALY_THRESHOLD
+              value: "38.0"
+            - name: RUST_LOG
+              value: "info"
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+
+        - name: sensor-vibration
+          image: iot-pipeline:latest
+          imagePullPolicy: Never
+          env:
+            - name: ROLE
+              value: "sensor"
+            - name: SENSOR_ID
+              value: "sensor-peer2-vibration"
+            - name: EDGE_URL
+              value: "http://edge-peer2-svc:9090"
+            - name: PUBLISH_INTERVAL_MS
+              value: "300"
+            - name: SENSOR_UNIT
+              value: "mm_s"
+            - name: BASE_VALUE
+              value: "2.5"
+            - name: ANOMALY_THRESHOLD
+              value: "8.0"
+            - name: RUST_LOG
+              value: "info"
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"

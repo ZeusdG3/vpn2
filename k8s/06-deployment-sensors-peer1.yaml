@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sensors-peer1
+  namespace: iot-pipeline
+  labels:
+    app: sensor
+    peer: peer1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sensor
+      peer: peer1
+  template:
+    metadata:
+      labels:
+        app: sensor
+        peer: peer1
+    spec:
+      containers:
+        # Sensor de temperatura
+        - name: sensor-temp
+          image: iot-pipeline:latest
+          imagePullPolicy: Never
+          env:
+            - name: ROLE
+              value: "sensor"
+            - name: SENSOR_ID
+              value: "sensor-peer1-temp"
+            # Los sensores apuntan al Service del edge (dentro del cluster)
+            - name: EDGE_URL
+              value: "http://edge-peer1-svc:9090"
+            - name: PUBLISH_INTERVAL_MS
+              value: "500"
+            - name: SENSOR_UNIT
+              value: "celsius"
+            - name: BASE_VALUE
+              value: "28.0"
+            - name: ANOMALY_THRESHOLD
+              value: "38.0"
+            - name: RUST_LOG
+              value: "info"
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+
+        # Sensor de humedad (segundo contenedor en el mismo pod)
+        - name: sensor-humidity
+          image: iot-pipeline:latest
+          imagePullPolicy: Never
+          env:
+            - name: ROLE
+              value: "sensor"
+            - name: SENSOR_ID
+              value: "sensor-peer1-humidity"
+            - name: EDGE_URL
+              value: "http://edge-peer1-svc:9090"
+            - name: PUBLISH_INTERVAL_MS
+              value: "800"
+            - name: SENSOR_UNIT
+              value: "percent_rh"
+            - name: BASE_VALUE
+              value: "65.0"
+            - name: ANOMALY_THRESHOLD
+              value: "90.0"
+            - name: RUST_LOG
+              value: "info"
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"

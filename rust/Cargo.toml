@@ -3,6 +3,11 @@ name = "iot_pipeline"
 version = "0.2.0"
 edition = "2021"
 
+# Librería compartida — contiene las estructuras de mensajes
+[lib]
+name = "iot_pipeline"
+path = "src/lib.rs"
+
 [[bin]]
 name = "sensor"
 path = "src/sensor.rs"
@@ -24,5 +29,4 @@ reqwest = { version = "0.12", features = ["json"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rand = "0.8"
-chrono = { version = "0.4", features = ["serde"] }
 tokio-util = "0.7"

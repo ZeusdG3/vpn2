@@ -1,8 +1,6 @@
 // src/coordinator.rs — Coordinador central: agrega datos, métricas, detección de fallos
-mod messages;
-
 use axum::{Router, extract::State, http::StatusCode, routing::get, routing::post, Json};
-use messages::{CoordStatus, EdgeReport, Heartbeat, now_ms};
+use iot_pipeline::{CoordStatus, EdgeReport, Heartbeat, now_ms};
 use std::{
     collections::HashMap,
     env,

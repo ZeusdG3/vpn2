@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-peer1-svc
+  namespace: iot-pipeline
+  labels:
+    app: edge
+    peer: peer1
+spec:
+  selector:
+    app: edge
+    peer: peer1
+  # NodePort expone el servicio en un puerto del nodo host
+  # Accesible desde sensores del mismo host vía IP ZeroTier:30090
+  type: NodePort
+  ports:
+    - name: http
+      protocol: TCP
+      port: 9090        # Puerto interno del cluster
+      targetPort: 9090  # Puerto del contenedor
+      nodePort: 30090   # Puerto expuesto en el nodo (30000-32767)

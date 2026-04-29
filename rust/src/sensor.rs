@@ -1,7 +1,5 @@
 // src/sensor.rs — Generador de datos sintéticos IoT
-mod messages;
-
-use messages::{Heartbeat, SensorReading, now_ms};
+use iot_pipeline::{Heartbeat, SensorReading, now_ms};
 use rand::Rng;
 use std::env;
 use std::time::Duration;

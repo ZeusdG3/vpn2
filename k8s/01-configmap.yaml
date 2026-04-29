@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iot-config
+  namespace: iot-pipeline
+data:
+  # IP ZeroTier del Integrante 1 (coordinador)
+  # IMPORTANTE: Cambiar este valor por la IP real de ZeroTier del Integrante 1
+  COORDINATOR_URL: "http://10.10.10.1:8080"
+  RUST_LOG: "info"
+  PUBLISH_INTERVAL_MS: "500"
+  ANOMALY_THRESHOLD: "38.0"
