@@ -1,0 +1,13 @@
+version: "3.8"
+services:
+  coordinator:
+    build:
+      context: ..
+      dockerfile: docker/coordinator/Dockerfile
+    container_name: coordinator
+    environment:
+      - RUST_LOG=info
+    ports:
+      - "9000:9000"   # datos desde edges
+      - "9002:9002"   # heartbeats desde edges y sensores
+    restart: unless-stopped

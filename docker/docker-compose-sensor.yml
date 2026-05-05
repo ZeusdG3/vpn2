@@ -1,0 +1,27 @@
+version: "3.9"
+services:
+  sensor1:
+    build:
+      context: ..
+      dockerfile: docker/sensor/Dockerfile
+    container_name: sensor_1        # Peer 2: cambiar a sensor_3
+    environment:
+      - RUST_LOG=info
+    command:
+      - "--id=1"                            # Peer 2: cambiar a 3
+      - "--edge-addr=127.0.0.1:9001"
+      - "--heartbeat-addr=10.165.68.1:9002"
+    restart: unless-stopped
+ 
+  sensor2:
+    build:
+      context: ..
+      dockerfile: docker/sensor/Dockerfile
+    container_name: sensor_2        # Peer 2: cambiar a sensor_4
+    environment:
+      - RUST_LOG=info
+    command:
+      - "--id=2"                            # Peer 2: cambiar a 4
+      - "--edge-addr=127.0.0.1:9001"
+      - "--heartbeat-addr=10.165.68.1:9002"
+    restart: unless-stopped

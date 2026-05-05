@@ -1,0 +1,13 @@
+[package]
+name = "edge"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+common = { path = "../common" }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+clap = { version = "4.4", features = ["derive"] }

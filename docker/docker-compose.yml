@@ -1,0 +1,80 @@
+version: "3.8"
+networks:
+  iot_net:
+    driver: bridge
+
+services:
+
+  # ── Coordinator ─────────────────────────────────────────────────────────────
+  coordinator:
+    build:
+      context: ..
+      dockerfile: docker/coordinator/Dockerfile
+    container_name: coordinator
+    environment:
+      - RUST_LOG=info
+    ports:
+      - "9000:9000"
+      - "9002:9002"
+    networks:
+      - iot_net
+    restart: unless-stopped
+
+  # ── Edge ────────────────────────────────────────────────────────────────────
+  # Se conecta al coordinator por nombre de servicio, no por IP.
+  edge:
+    build:
+      context: ..
+      dockerfile: docker/edge/Dockerfile
+    container_name: edge
+    environment:
+      - RUST_LOG=info
+    command:
+      - "--id=100"
+      - "--listen-addr=0.0.0.0:9001"
+      - "--coord-addr=coordinator:9000"
+      - "--heartbeat-addr=coordinator:9002"
+    ports:
+      - "9001:9001"
+    networks:
+      - iot_net
+    depends_on:
+      - coordinator
+    restart: unless-stopped
+
+  # ── Sensor 1 ────────────────────────────────────────────────────────────────
+  # Se conecta al edge por nombre de servicio, no por IP.
+  sensor1:
+    build:
+      context: ..
+      dockerfile: docker/sensor/Dockerfile
+    container_name: sensor1
+    environment:
+      - RUST_LOG=info
+    command:
+      - "--id=1"
+      - "--edge-addr=edge:9001"
+      - "--heartbeat-addr=coordinator:9002"
+    networks:
+      - iot_net
+    depends_on:
+      - edge
+    restart: unless-stopped
+
+  # ── Sensor 2 ────────────────────────────────────────────────────────────────
+  sensor2:
+    build:
+      context: ..
+      dockerfile: docker/sensor/Dockerfile
+    container_name: sensor2
+    environment:
+      - RUST_LOG=info
+    command:
+      - "--id=2"
+      - "--edge-addr=edge:9001"
+      - "--heartbeat-addr=coordinator:9002"
+    networks:
+      - iot_net
+    depends_on:
+      - edge
+    restart: unless-stopped

@@ -1,0 +1,17 @@
+version: "3.8"
+services:
+  edge:
+    build:
+      context: ..
+      dockerfile: docker/edge/Dockerfile
+    container_name: edge_100        # Peer 2: cambiar a edge_101
+    environment:
+      - RUST_LOG=info
+    command:
+      - "--id=100"                            # Peer 2: cambiar a 101
+      - "--listen-addr=0.0.0.0:9001"
+      - "--coord-addr=10.165.68.1:9000"
+      - "--heartbeat-addr=10.165.68.1:9002"
+    ports:
+      - "9001:9001"   # sensores locales se conectan por aquí
+    restart: unless-stopped
