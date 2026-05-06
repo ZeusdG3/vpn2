@@ -15,6 +15,8 @@ services:
       - iot_network
     volumes:
       - ./certs:/app/certs:ro
+    working_dir: /app
+
 
   edge_1:
     build:
@@ -24,14 +26,15 @@ services:
       - RUST_LOG=info
     volumes:
       - ./certs:/app/certs:ro
+    working_dir: /app
     command: [
       "edge",
       "--id", "1", # ID del edge
       "--listen-addr", "0.0.0.0:9001", # Acepta conexiones de cualquier interfaz de red
       "--coord-addr", "10.165.168.1:9000", # IP del coordinador en ZeroTier: 10.165.168.1
       "--heartbeat-addr", "10.165.168.1:9002",
-      "--cert-path", "/path/certs/edge1.crt",
-      "--key-path", "/path/certs/edge1.key"
+      "--cert-path", "/app/certs/edge1.crt",
+      "--key-path", "/app/certs/edge1.key"
     ]
     depends_on:
       - coordinator
