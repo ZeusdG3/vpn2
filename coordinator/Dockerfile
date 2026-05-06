@@ -11,4 +11,5 @@ RUN cargo build --release
 # Imagen final
 FROM debian:bookworm-slim
 COPY --from=builder /usr/src/app/target/release/coordinator /usr/local/bin/coordinator
+COPY certs /app/certs
 CMD ["coordinator"]

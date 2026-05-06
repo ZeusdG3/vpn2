@@ -13,6 +13,8 @@ services:
       - HEARTBEAT_ADDR=0.0.0.0:9002
     networks:
       - iot_network
+    volumes:
+      - ./certs:/app/certs:ro
 
   edge_1:
     build:
@@ -20,12 +22,16 @@ services:
       dockerfile: edge/Dockerfile
     environment:
       - RUST_LOG=info
+    volumes:
+      - ./certs:/app/certs:ro
     command: [
       "edge",
-      "--id", "101", # ID del edge
+      "--id", "1", # ID del edge
       "--listen-addr", "0.0.0.0:9001", # Acepta conexiones de cualquier interfaz de red
-       "--coord-addr", "10.165.168.1:9000", # IP del coordinador en ZeroTier: 10.165.168.1
-       "--heartbeat-addr", "10.165.168.1:9002"
+      "--coord-addr", "10.165.168.1:9000", # IP del coordinador en ZeroTier: 10.165.168.1
+      "--heartbeat-addr", "10.165.168.1:9002",
+      "--cert-path", "/path/certs/edge1.crt",
+      "--key-path", "/path/certs/edge1.key"
     ]
     depends_on:
       - coordinator
@@ -42,7 +48,7 @@ services:
       "sensor", 
       "--id", "1",  # ID del sensor
       "--edge-addr", "edge_1:9001", # IP del edge al cual envia la informacion, si es desde otra VM, cambiar a la IP de la VM
-      "--heartbeat-addr", "coordinator:9002"  
+      "--heartbeat-addr", "10.165.168.1:9002"  
     ]
     depends_on:
       - edge_1

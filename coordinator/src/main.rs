@@ -1,10 +1,19 @@
 use common::{EdgeReport, Heartbeat, CoordStatus, current_timestamp_ms};
 use tokio::net::TcpListener;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use anyhow::Result;
-use log::{info, warn};
+use log::{info, warn, error};
+use std::fs::File;
+use std::io::BufReader as StdBufReader;
+use std::path::Path;
+
+// Imports de rustls para el certificado mTLS
+use rustls::ServerConfig;
+use rustls::server::AllowAnyAuthenticatedClient;
+use tokio_rustls::TlsAcceptor;
+use rustls_pemfile::{certs, rsa_private_keys};
 
 struct Metrics {
     total_readings: u64,
@@ -27,12 +36,64 @@ struct Metrics {
     start_time: u64,
 }
 
+// Funciones auxiliares para cargar certificados
+fn load_certs(path: &Path) -> Vec<rustls::Certificate> {
+    let certfile = File::open(path).expect("No se pudo abrir el certificado");
+    let mut reader = StdBufReader::new(certfile);
+    certs(&mut reader).unwrap().into_iter().map(rustls::Certificate).collect()
+}
+
+fn load_keys(path: &Path) -> Vec<rustls::PrivateKey> {
+    let keyfile = File::open(path).expect("No se pudo abrir la llave");
+    let mut reader = StdBufReader::new(keyfile);
+    
+    // Intentamos cargar llaves RSA (formato antiguo) o PKCS8 (formato nuevo)
+    let mut keys = Vec::new();
+    for item in rustls_pemfile::read_all(&mut reader).unwrap() {
+        match item {
+            rustls_pemfile::Item::RSAKey(key) => keys.push(rustls::PrivateKey(key)),
+            rustls_pemfile::Item::PKCS8Key(key) => keys.push(rustls::PrivateKey(key)),
+            rustls_pemfile::Item::ECKey(key) => keys.push(rustls::PrivateKey(key)),
+            _ => {}
+        }
+    }
+    
+    if keys.is_empty() {
+        panic!("No se encontraron llaves privadas válidas en {:?}", path);
+    }
+    keys
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
+    
     let data_addr = std::env::var("DATA_ADDR").unwrap_or_else(|_| "0.0.0.0:9000".to_string());
     let heartbeat_addr = std::env::var("HEARTBEAT_ADDR").unwrap_or_else(|_| "0.0.0.0:9002".to_string());
 
+    // --- CONFIGURACIÓN mTLS ---
+    let mut roots = rustls::RootCertStore::empty();
+    let ca_file = File::open("certs/ca.crt")?;
+    let mut ca_reader = StdBufReader::new(ca_file);
+    let root_certs = certs(&mut ca_reader).unwrap();
+    for cert in root_certs {
+        roots.add(&rustls::Certificate(cert)).unwrap();
+    }
+
+    let client_auth = AllowAnyAuthenticatedClient::new(roots);
+    let certs = load_certs(Path::new("certs/coord.crt"));
+    let mut keys = load_keys(Path::new("certs/coord.key"));
+    let ca_file = File::open("certs/ca.crt")?;
+
+    let config = ServerConfig::builder()
+        .with_safe_defaults()
+        .with_client_cert_verifier(Arc::new(client_auth))
+        .with_single_cert(certs, keys.remove(0))
+        .expect("Configuración TLS inválida");
+
+    let tls_acceptor = TlsAcceptor::from(Arc::new(config));
+
+    // --- ESTADO Y LISTENERS ---
     let state = Arc::new(Mutex::new(Metrics {
         total_readings: 0,
         total_anomalies: 0,
@@ -48,32 +109,51 @@ async fn main() -> Result<()> {
         start_time: current_timestamp_ms(),
     }));
 
-    let data_listener = TcpListener::bind(data_addr.clone()).await?;
-    info!("Coordinator escuchando datos en {}", data_addr);
-    let heartbeat_listener = TcpListener::bind(heartbeat_addr.clone()).await?;
-    info!("Coordinator escuchando heartbeats en {}", heartbeat_addr);
+    let data_listener = TcpListener::bind(&data_addr).await?;
+    info!("Coordinator (mTLS) escuchando datos en {}", data_addr);
 
-    // Tarea: Procesar Heartbeats
+    // En coordinator/src/main.rs (Línea 112 aprox)
+    while let Ok(Some(line)) = lines.next_line().await {
+    match serde_json::from_str::<Heartbeat>(&line) {
+        Ok(hb) => {
+            let key = format!("{}_{}", hb.role, hb.node_id);
+            let mut st = state_cloned.lock().unwrap();
+            st.node_first_seen.entry(key.clone()).or_insert(hb.timestamp_ms);
+            st.node_last_seen.insert(key, hb.timestamp_ms);
+            // info!("Heartbeat recibido de {}", hb.node_id); // DEBUG TEMPORAL
+        }
+        Err(e) => error!("Error al deserializar heartbeat: {} | Línea: {}", e, line), // Esto te dirá si el JSON está roto[cite: 1]
+    }
+}
+
+    let heartbeat_listener = TcpListener::bind(&heartbeat_addr).await?;
+    info!("Coordinator (mTLS) escuchando heartbeats en {}", heartbeat_addr);
+
+    // --- TAREA: PROCESAR HEARTBEATS (mTLS incorporado) ---
     let state_hb = state.clone();
+    let hb_acceptor = tls_acceptor.clone();
     tokio::spawn(async move {
-        while let Ok((stream, _)) = heartbeat_listener.accept().await {
+        while let Ok((stream, addr)) = heartbeat_listener.accept().await {
+            let acceptor = hb_acceptor.clone();
             let state_cloned = state_hb.clone();
             tokio::spawn(async move {
-                let reader = BufReader::new(stream);
-                let mut lines = reader.lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    if let Ok(hb) = serde_json::from_str::<Heartbeat>(&line) {
-                        let key = format!("{}_{}", hb.role, hb.node_id);
-                        let mut st = state_cloned.lock().unwrap();
-                        st.node_first_seen.entry(key.clone()).or_insert(hb.timestamp_ms);
-                        st.node_last_seen.insert(key, hb.timestamp_ms);
+                if let Ok(mut tls_stream) = acceptor.accept(stream).await {
+                    let (reader, _) = tokio::io::split(tls_stream);
+                    let mut lines = TokioBufReader::new(reader).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        if let Ok(hb) = serde_json::from_str::<Heartbeat>(&line) {
+                            let key = format!("{}_{}", hb.role, hb.node_id);
+                            let mut st = state_cloned.lock().unwrap();
+                            st.node_first_seen.entry(key.clone()).or_insert(hb.timestamp_ms);
+                            st.node_last_seen.insert(key, hb.timestamp_ms);
+                        }
                     }
                 }
             });
         }
     });
 
-    // Tarea: Exponer y calcular métricas periódicas (cada 5s)
+    // --- TAREA: MÉTRICAS PERIÓDICAS ---
     let state_metrics = state.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
@@ -137,39 +217,43 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Tarea: Procesar Datos y actualizar estado
-    while let Ok((stream, _)) = data_listener.accept().await {
+    // --- BUCLE PRINCIPAL: PROCESAR DATOS ---
+    while let Ok((stream, addr)) = data_listener.accept().await {
         let state_data = state.clone();
+        let acceptor = tls_acceptor.clone();
+        
         tokio::spawn(async move {
-            let reader = BufReader::new(stream);
-            let mut lines = reader.lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if let Ok(report) = serde_json::from_str::<EdgeReport>(&line) {
-                    let now = current_timestamp_ms();
-                    let mut st = state_data.lock().unwrap();
-                    
-                    st.total_readings += 1;
-                    st.readings_since_last += 1;
-                    *st.edge_readings_since_last.entry(report.edge_id).or_insert(0) += 1;
+            match acceptor.accept(stream).await {
+                Ok(tls_stream) => {
+                    let (reader, _) = tokio::io::split(tls_stream);
+                    let mut lines = TokioBufReader::new(reader).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        if let Ok(report) = serde_json::from_str::<EdgeReport>(&line) {
+                            let now = current_timestamp_ms();
+                            let mut st = state_data.lock().unwrap();
+                            
+                            st.total_readings += 1;
+                            st.readings_since_last += 1;
+                            *st.edge_readings_since_last.entry(report.edge_id).or_insert(0) += 1;
 
-                    // Latencia E2E (Recepción - Generación en Sensor)
-                    let e2e_latency = now.saturating_sub(report.sensor_timestamp_ms);
-                    st.latencies_60s.push_back((now, e2e_latency));
+                            let e2e_latency = now.saturating_sub(report.sensor_timestamp_ms);
+                            st.latencies_60s.push_back((now, e2e_latency));
 
-                    // Anomalías
-                    if report.anomaly_detected {
-                        st.total_anomalies += 1;
-                        st.anomalies_60s.push_back(now);
-                        warn!("Anomalía detectada en Edge {}, avg: {:.2}", report.edge_id, report.window_avg);
+                            if report.anomaly_detected {
+                                st.total_anomalies += 1;
+                                st.anomalies_60s.push_back(now);
+                                warn!("Anomalía en Edge {}, avg: {:.2}", report.edge_id, report.window_avg);
+                            }
+
+                            let expected_seq = st.last_sequence_per_edge.get(&report.edge_id).map(|s| s + 1).unwrap_or(report.sequence_number);
+                            if report.sequence_number > expected_seq {
+                                st.lost_messages += report.sequence_number - expected_seq;
+                            }
+                            st.last_sequence_per_edge.insert(report.edge_id, report.sequence_number);
+                        }
                     }
-
-                    // Mensajes Perdidos (Gaps)
-                    let expected_seq = st.last_sequence_per_edge.get(&report.edge_id).map(|s| s + 1).unwrap_or(report.sequence_number);
-                    if report.sequence_number > expected_seq {
-                        st.lost_messages += report.sequence_number - expected_seq;
-                    }
-                    st.last_sequence_per_edge.insert(report.edge_id, report.sequence_number);
                 }
+                Err(e) => error!("Fallo TLS en datos desde {}: {}", addr, e),
             }
         });
     }
