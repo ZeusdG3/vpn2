@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  coordinator:
+    build: 
+      context: .
+      dockerfile: coordinator/Dockerfile
+    ports:
+      - "9000:9000"
+      - "9002:9002"
+    environment:
+      - DATA_ADDR=0.0.0.0:9000
+      - HEARTBEAT_ADDR=0.0.0.0:9002
+    networks:
+      - iot_network
+
+  edge_1:
+    build:
+      context: .
+      dockerfile: edge/Dockerfile
+    environment:
+      - RUST_LOG=info
+    command: [
+      "edge",
+      "--id", "101", # ID del edge
+      "--listen-addr", "0.0.0.0:9001", # Acepta conexiones de cualquier interfaz de red
+       "--coord-addr", "10.165.168.1:9000", # IP del coordinador en ZeroTier: 10.165.168.1
+       "--heartbeat-addr", "10.165.168.1:9002"
+    ]
+    depends_on:
+      - coordinator
+    networks:
+      - iot_network
+
+  sensor_1:
+    build:
+      context: .
+      dockerfile: sensor/Dockerfile
+    environment:
+      - RUST_LOG=info
+    command: [
+      "sensor", 
+      "--id", "1",  # ID del sensor
+      "--edge-addr", "edge_1:9001", # IP del edge al cual envia la informacion, si es desde otra VM, cambiar a la IP de la VM
+      "--heartbeat-addr", "coordinator:9002"  
+    ]
+    depends_on:
+      - edge_1
+    networks:
+      - iot_network
+
+networks:
+  iot_network:
+    driver: bridge

@@ -10,3 +10,6 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
+tokio-rustls = "0.24"
+rustls-pemfile = "1.0"
+rustls = "0.21"

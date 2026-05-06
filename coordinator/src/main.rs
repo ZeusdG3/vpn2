@@ -30,8 +30,8 @@ struct Metrics {
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
-    let data_addr = "127.0.0.1:9000";
-    let heartbeat_addr = "127.0.0.1:9002";
+    let data_addr = std::env::var("DATA_ADDR").unwrap_or_else(|_| "0.0.0.0:9000".to_string());
+    let heartbeat_addr = std::env::var("HEARTBEAT_ADDR").unwrap_or_else(|_| "0.0.0.0:9002".to_string());
 
     let state = Arc::new(Mutex::new(Metrics {
         total_readings: 0,
@@ -48,9 +48,9 @@ async fn main() -> Result<()> {
         start_time: current_timestamp_ms(),
     }));
 
-    let data_listener = TcpListener::bind(data_addr).await?;
+    let data_listener = TcpListener::bind(data_addr.clone()).await?;
     info!("Coordinator escuchando datos en {}", data_addr);
-    let heartbeat_listener = TcpListener::bind(heartbeat_addr).await?;
+    let heartbeat_listener = TcpListener::bind(heartbeat_addr.clone()).await?;
     info!("Coordinator escuchando heartbeats en {}", heartbeat_addr);
 
     // Tarea: Procesar Heartbeats

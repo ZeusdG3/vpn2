@@ -14,11 +14,11 @@ struct Args {
 
     // Dirección del edge (Default la de localhost: 127.0.0.1:9001)
     // Pero ajustar cuando usemos IP del VPN
-    #[arg(short = 'e', long, default_value = "127.0.0.1:9001")]
+    #[arg(short = 'e', long, default_value = "10.165.168.1:9001")]
     edge_addr: String,
 
     // Dirección del heartbeat (coordinador)
-    #[arg(long, default_value = "127.0.0.1:9002")]
+    #[arg(long, default_value = "10.165.168.1:9002")]
     heartbeat_addr: String,
 }
 

@@ -17,15 +17,15 @@ struct Args {
 
     // Dirección donde escuchar sensores (Default: 127.0.0.1:9001)
     // Cambiar a direccion del coordinador con VPN "Pendiente"
-    #[arg(short = 'l', long, default_value = "127.0.0.1:9001")]
+    #[arg(short = 'l', long, default_value = "0.0.0.0:9001")]
     listen_addr: String,
 
     /// Dirección del coordinador (envío de datos)
-    #[arg(long, default_value = "127.0.0.1:9000")]
+    #[arg(long, default_value = "10.165.168.1:9000")]
     coord_addr: String,
 
     /// Dirección del heartbeat (coordinador)
-    #[arg(long, default_value = "127.0.0.1:9002")]
+    #[arg(long, default_value = "10.165.168.1:9002")]
     heartbeat_addr: String,
 }
 
