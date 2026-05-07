@@ -1,9 +1,0 @@
-Ejemplo: 
-# --- EDGE 2 ---
-# Generar llave y solicitud (CSR)
-
-openssl req -newkey rsa:4096 -keyout edge2.key -out edge2.csr -nodes -subj "/CN=edge2"
-
-# Firmar con la CA usando la configuración V3
-
-openssl x509 -req -in edge2.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out edge2.crt -days 365 -sha256 -extfile ../openssl.conf -extensions v3_req

@@ -1,4 +1,4 @@
-eartuse clap::Parser;
+use clap::Parser;
 use common::{SensorReading, Heartbeat, current_timestamp_ms};
 use tokio::net::TcpStream;
 use tokio::io::AsyncWriteExt;

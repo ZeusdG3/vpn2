@@ -1,0 +1,126 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: coordinator-svc
+spec:
+  selector:
+    app: coordinator
+  ports:
+    - name: data
+      protocol: TCP
+      port: 9000
+      targetPort: 9000
+    - name: heartbeat
+      protocol: TCP
+      port: 9002
+      targetPort: 9002
+  type: LoadBalancer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coordinator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: coordinator
+  template:
+    metadata:
+      labels:
+        app: coordinator
+    spec:
+      containers:
+      - name: coordinator
+        image: iot-coordinator:latest
+        imagePullPolicy: Never
+        workingDir: /app
+        env:
+        - name: DATA_ADDR
+          value: "0.0.0.0:9000"
+        - name: HEARTBEAT_ADDR
+          value: "0.0.0.0:9002"
+        volumeMounts:
+        - name: cert-volume
+          mountPath: /app/certs
+          readOnly: true
+      volumes:
+      - name: cert-volume
+        hostPath:
+          path: /home/juan/proyectoPipeLineIoT/certs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-svc
+spec:
+  selector:
+    app: edge
+  ports:
+    - protocol: TCP
+      port: 9001
+      targetPort: 9001
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: edge
+  template:
+    metadata:
+      labels:
+        app: edge
+    spec:
+      containers:
+      - name: edge
+        image: iot-edge:latest
+        imagePullPolicy: Never
+        workingDir: /app
+        command: ["/usr/local/bin/edge"]
+        args: [
+          "--id", "1",
+          "--listen-addr", "0.0.0.0:9001",
+          "--coord-addr", "coordinator-svc:9000",
+          "--heartbeat-addr", "coordinator-svc:9002",
+          "--cert-path", "/app/certs/edge1.crt", 
+          "--key-path", "/app/certs/edge1.key"   
+        ]
+        volumeMounts:
+        - name: cert-volume
+          mountPath: /app/certs
+          readOnly: true
+      volumes:
+      - name: cert-volume
+        hostPath:
+          path: /home/juan/proyectoPipeLineIoT/certs
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sensor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sensor
+  template:
+    metadata:
+      labels:
+        app: sensor
+    spec:
+      containers:
+      - name: sensor
+        image: iot-sensor:latest
+        imagePullPolicy: Never
+        workingDir: /app
+        command: ["/usr/local/bin/sensor"]
+        args: [
+          "--id", "1",
+          "--edge-addr", "edge-svc:9001",       # Servicio interno del Edge
+          "--heartbeat-addr", "coordinator-svc:9002" # Servicio interno del Coordinador
+        ]

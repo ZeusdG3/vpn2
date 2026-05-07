@@ -112,20 +112,6 @@ async fn main() -> Result<()> {
     let data_listener = TcpListener::bind(&data_addr).await?;
     info!("Coordinator (mTLS) escuchando datos en {}", data_addr);
 
-    // En coordinator/src/main.rs (Línea 112 aprox)
-    while let Ok(Some(line)) = lines.next_line().await {
-    match serde_json::from_str::<Heartbeat>(&line) {
-        Ok(hb) => {
-            let key = format!("{}_{}", hb.role, hb.node_id);
-            let mut st = state_cloned.lock().unwrap();
-            st.node_first_seen.entry(key.clone()).or_insert(hb.timestamp_ms);
-            st.node_last_seen.insert(key, hb.timestamp_ms);
-            // info!("Heartbeat recibido de {}", hb.node_id); // DEBUG TEMPORAL
-        }
-        Err(e) => error!("Error al deserializar heartbeat: {} | Línea: {}", e, line), // Esto te dirá si el JSON está roto[cite: 1]
-    }
-}
-
     let heartbeat_listener = TcpListener::bind(&heartbeat_addr).await?;
     info!("Coordinator (mTLS) escuchando heartbeats en {}", heartbeat_addr);
 

@@ -24,6 +24,8 @@ services:
       dockerfile: edge/Dockerfile
     environment:
       - RUST_LOG=info
+    ports:
+      - "9001:9001"
     volumes:
       - ./certs:/app/certs:ro
     working_dir: /app
@@ -36,8 +38,6 @@ services:
       "--cert-path", "/app/certs/edge1.crt",
       "--key-path", "/app/certs/edge1.key"
     ]
-    depends_on:
-      - coordinator
     networks:
       - iot_network
 
@@ -53,8 +53,6 @@ services:
       "--edge-addr", "edge_1:9001", # IP del edge al cual envia la informacion, si es desde otra VM, cambiar a la IP de la VM
       "--heartbeat-addr", "10.165.168.1:9002"  
     ]
-    depends_on:
-      - edge_1
     networks:
       - iot_network
 
