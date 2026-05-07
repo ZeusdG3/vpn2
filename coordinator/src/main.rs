@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
 
     // --- CONFIGURACIÓN mTLS ---
     let mut roots = rustls::RootCertStore::empty();
-    let ca_file = File::open("certs/ca.crt")?;
+    let ca_file = File::open("/app/certs/ca.crt")?;
     let mut ca_reader = StdBufReader::new(ca_file);
     let root_certs = certs(&mut ca_reader).unwrap();
     for cert in root_certs {
@@ -81,9 +81,9 @@ async fn main() -> Result<()> {
     }
 
     let client_auth = AllowAnyAuthenticatedClient::new(roots);
-    let certs = load_certs(Path::new("certs/coord.crt"));
-    let mut keys = load_keys(Path::new("certs/coord.key"));
-    let ca_file = File::open("certs/ca.crt")?;
+    let certs = load_certs(Path::new("/app/certs/coord.crt"));
+let mut keys = load_keys(Path::new("/app/certs/coord.key"));
+    let ca_file = File::open("/app/certs/ca.crt")?;
 
     let config = ServerConfig::builder()
         .with_safe_defaults()

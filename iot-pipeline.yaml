@@ -7,15 +7,14 @@ spec:
     app: coordinator
   ports:
     - name: data
-      protocol: TCP
       port: 9000
       targetPort: 9000
     - name: heartbeat
-      protocol: TCP
       port: 9002
       targetPort: 9002
-  type: LoadBalancer
+  type: ClusterIP
 ---
+# 2. DEPLOYMENT DEL COORDINADOR
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,11 +29,14 @@ spec:
       labels:
         app: coordinator
     spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
       containers:
       - name: coordinator
         image: iot-coordinator:latest
         imagePullPolicy: Never
-        workingDir: /app
+        command: ["/bin/sh"]
+        args: ["-c", "while true; do sleep 3600; done"]
         env:
         - name: DATA_ADDR
           value: "0.0.0.0:9000"
@@ -47,8 +49,9 @@ spec:
       volumes:
       - name: cert-volume
         hostPath:
-          path: /home/juan/proyectoPipeLineIoT/certs
+          path: /data/iot-project/certs
 ---
+# 3. SERVICIO DE BALANCEO PARA EDGES
 apiVersion: v1
 kind: Service
 metadata:
@@ -60,67 +63,224 @@ spec:
     - protocol: TCP
       port: 9001
       targetPort: 9001
-  type: ClusterIP
 ---
+# --- BLOQUE DE EDGES (101-102, 201-202, 301-302) ---
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: edge
+  name: edge-101
 spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: edge
+  replicas: 1
+  selector: { matchLabels: { app: edge, id: "101" } }
   template:
-    metadata:
-      labels:
-        app: edge
+    metadata: { labels: { app: edge, id: "101" } }
     spec:
       containers:
       - name: edge
         image: iot-edge:latest
         imagePullPolicy: Never
-        workingDir: /app
-        command: ["/usr/local/bin/edge"]
-        args: [
-          "--id", "1",
-          "--listen-addr", "0.0.0.0:9001",
-          "--coord-addr", "coordinator-svc:9000",
-          "--heartbeat-addr", "coordinator-svc:9002",
-          "--cert-path", "/app/certs/edge1.crt", 
-          "--key-path", "/app/certs/edge1.key"   
-        ]
-        volumeMounts:
-        - name: cert-volume
-          mountPath: /app/certs
-          readOnly: true
-      volumes:
-      - name: cert-volume
-        hostPath:
-          path: /home/juan/proyectoPipeLineIoT/certs
+        args: ["--id", "101", "--listen-addr", "0.0.0.0:9001", "--coord-addr", "coordinator-svc:9000", "--heartbeat-addr", "coordinator-svc:9002", "--cert-path", "/app/certs/edge1.crt", "--key-path", "/app/certs/edge1.key"]
+        volumeMounts: [{ name: cert-volume, mountPath: /app/certs }]
+      volumes: [{ name: cert-volume, hostPath: { path: /data/iot-project/certs } }]
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: sensor
+  name: edge-102
 spec:
   replicas: 1
-  selector:
-    matchLabels:
-      app: sensor
+  selector: { matchLabels: { app: edge, id: "102" } }
   template:
-    metadata:
-      labels:
-        app: sensor
+    metadata: { labels: { app: edge, id: "102" } }
+    spec:
+      containers:
+      - name: edge
+        image: iot-edge:latest
+        imagePullPolicy: Never
+        args: ["--id", "102", "--listen-addr", "0.0.0.0:9001", "--coord-addr", "coordinator-svc:9000", "--heartbeat-addr", "coordinator-svc:9002", "--cert-path", "/app/certs/edge2.crt", "--key-path", "/app/certs/edge2.key"]
+        volumeMounts: [{ name: cert-volume, mountPath: /app/certs }]
+      volumes: [{ name: cert-volume, hostPath: { path: /data/iot-project/certs } }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-201
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: edge, id: "201" } }
+  template:
+    metadata: { labels: { app: edge, id: "201" } }
+    spec:
+      containers:
+      - name: edge
+        image: iot-edge:latest
+        imagePullPolicy: Never
+        args: ["--id", "201", "--listen-addr", "0.0.0.0:9001", "--coord-addr", "coordinator-svc:9000", "--heartbeat-addr", "coordinator-svc:9002", "--cert-path", "/app/certs/edge3.crt", "--key-path", "/app/certs/edge3.key"]
+        volumeMounts: [{ name: cert-volume, mountPath: /app/certs }]
+      volumes: [{ name: cert-volume, hostPath: { path: /data/iot-project/certs } }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-202
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: edge, id: "202" } }
+  template:
+    metadata: { labels: { app: edge, id: "202" } }
+    spec:
+      containers:
+      - name: edge
+        image: iot-edge:latest
+        imagePullPolicy: Never
+        args: ["--id", "202", "--listen-addr", "0.0.0.0:9001", "--coord-addr", "coordinator-svc:9000", "--heartbeat-addr", "coordinator-svc:9002", "--cert-path", "/app/certs/edge4.crt", "--key-path", "/app/certs/edge4.key"]
+        volumeMounts: [{ name: cert-volume, mountPath: /app/certs }]
+      volumes: [{ name: cert-volume, hostPath: { path: /data/iot-project/certs } }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-301
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: edge, id: "301" } }
+  template:
+    metadata: { labels: { app: edge, id: "301" } }
+    spec:
+      containers:
+      - name: edge
+        image: iot-edge:latest
+        imagePullPolicy: Never
+        args: ["--id", "301", "--listen-addr", "0.0.0.0:9001", "--coord-addr", "coordinator-svc:9000", "--heartbeat-addr", "coordinator-svc:9002", "--cert-path", "/app/certs/edge5.crt", "--key-path", "/app/certs/edge5.key"]
+        volumeMounts: [{ name: cert-volume, mountPath: /app/certs }]
+      volumes: [{ name: cert-volume, hostPath: { path: /data/iot-project/certs } }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-302
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: edge, id: "302" } }
+  template:
+    metadata: { labels: { app: edge, id: "302" } }
+    spec:
+      containers:
+      - name: edge
+        image: iot-edge:latest
+        imagePullPolicy: Never
+        args: ["--id", "302", "--listen-addr", "0.0.0.0:9001", "--coord-addr", "coordinator-svc:9000", "--heartbeat-addr", "coordinator-svc:9002", "--cert-path", "/app/certs/edge6.crt", "--key-path", "/app/certs/edge6.key"]
+        volumeMounts: [{ name: cert-volume, mountPath: /app/certs }]
+      volumes: [{ name: cert-volume, hostPath: { path: /data/iot-project/certs } }]
+
+---
+# --- BLOQUE DE SENSORES (1 al 6) ---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sensor-1
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: sensor, id: "1" } }
+  template:
+    metadata: { labels: { app: sensor, id: "1" } }
     spec:
       containers:
       - name: sensor
         image: iot-sensor:latest
         imagePullPolicy: Never
-        workingDir: /app
-        command: ["/usr/local/bin/sensor"]
-        args: [
-          "--id", "1",
-          "--edge-addr", "edge-svc:9001",       # Servicio interno del Edge
-          "--heartbeat-addr", "coordinator-svc:9002" # Servicio interno del Coordinador
-        ]
+        args: ["--id", "1", "--edge-addr", "edge-svc:9001", "--heartbeat-addr", "coordinator-svc:9002"]
+        volumeMounts: [{ name: cert-volume, mountPath: /app/certs }]
+      volumes: [{ name: cert-volume, hostPath: { path: /data/iot-project/certs } }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sensor-2
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: sensor, id: "2" } }
+  template:
+    metadata: { labels: { app: sensor, id: "2" } }
+    spec:
+      containers:
+      - name: sensor
+        image: iot-sensor:latest
+        imagePullPolicy: Never
+        args: ["--id", "2", "--edge-addr", "edge-svc:9001", "--heartbeat-addr", "coordinator-svc:9002"]
+        volumeMounts: [{ name: cert-volume, mountPath: /app/certs }]
+      volumes: [{ name: cert-volume, hostPath: { path: /data/iot-project/certs } }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sensor-3
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: sensor, id: "3" } }
+  template:
+    metadata: { labels: { app: sensor, id: "3" } }
+    spec:
+      containers:
+      - name: sensor
+        image: iot-sensor:latest
+        imagePullPolicy: Never
+        args: ["--id", "3", "--edge-addr", "edge-svc:9001", "--heartbeat-addr", "coordinator-svc:9002"]
+        volumeMounts: [{ name: cert-volume, mountPath: /app/certs }]
+      volumes: [{ name: cert-volume, hostPath: { path: /data/iot-project/certs } }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sensor-4
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: sensor, id: "4" } }
+  template:
+    metadata: { labels: { app: sensor, id: "4" } }
+    spec:
+      containers:
+      - name: sensor
+        image: iot-sensor:latest
+        imagePullPolicy: Never
+        args: ["--id", "4", "--edge-addr", "edge-svc:9001", "--heartbeat-addr", "coordinator-svc:9002"]
+        volumeMounts: [{ name: cert-volume, mountPath: /app/certs }]
+      volumes: [{ name: cert-volume, hostPath: { path: /data/iot-project/certs } }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sensor-5
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: sensor, id: "5" } }
+  template:
+    metadata: { labels: { app: sensor, id: "5" } }
+    spec:
+      containers:
+      - name: sensor
+        image: iot-sensor:latest
+        imagePullPolicy: Never
+        args: ["--id", "5", "--edge-addr", "edge-svc:9001", "--heartbeat-addr", "coordinator-svc:9002"]
+        volumeMounts: [{ name: cert-volume, mountPath: /app/certs }]
+      volumes: [{ name: cert-volume, hostPath: { path: /data/iot-project/certs } }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sensor-6
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: sensor, id: "6" } }
+  template:
+    metadata: { labels: { app: sensor, id: "6" } }
+    spec:
+      containers:
+      - name: sensor
+        image: iot-sensor:latest
+        imagePullPolicy: Never
+        args: ["--id", "6", "--edge-addr", "edge-svc:9001", "--heartbeat-addr", "coordinator-svc:9002"]
+        volumeMounts: [{ name: cert-volume, mountPath: /app/certs }]
+      volumes: [{ name: cert-volume, hostPath: { path: /data/iot-project/certs } }]

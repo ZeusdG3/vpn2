@@ -89,7 +89,7 @@ async fn main() -> Result<()> {
     
     // --- CONFIGURACIÓN mTLS ---
     let mut root_store = RootCertStore::empty();
-    let ca_file = File::open("certs/ca.crt")?;
+    let ca_file = File::open("/app/certs/ca.crt")?;
     let mut ca_reader = StdBufReader::new(ca_file);
     for cert in certs(&mut ca_reader).unwrap() {
         root_store.add(&Certificate(cert))?;

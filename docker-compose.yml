@@ -14,7 +14,7 @@ services:
     networks:
       - iot_network
     volumes:
-      - ./certs:/app/certs:ro
+      - /data/iot-project/certs:/app/certs:ro
     working_dir: /app
 
 
@@ -27,7 +27,7 @@ services:
     ports:
       - "9001:9001"
     volumes:
-      - ./certs:/app/certs:ro
+      - /data/iot-project/certs:/app/certs:ro
     working_dir: /app
     command: [
       "edge",
